@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Oauth View Page</title>
+</head>
+
+<body>
+<form action="/api/v1/approve" th:object="${authRequest}" method="POST">
+    <label>Client Id:</label>
+    <tbody>
+        <td th:text="*{clientId}" id="clientId"/>
+    </tbody>
+    <input type="hidden" th:field="*{redirectUri}" id="redirect_uri">
+    <input type="hidden" th:field="*{scope}" id="scope">
+    <input type="hidden" th:field="*{state}" id="state">
+    <input type="hidden" th:field="*{reqId}" id="reqId">
+    <input type="hidden" th:field="*{clientId}" id="clientId">
+    <input type="hidden" th:field="*{responseType}" id="responseType">
+    </br>
+    <label>User:</label>
+    <input name="user" id="user" th:value="user">
+    </br>
+    <button>Approve</button>
+</form>
+</body>
+</html>
