@@ -6,10 +6,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.MultiValueMap;
 
 import javax.servlet.http.HttpServletRequest;
-import java.io.BufferedWriter;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -21,18 +21,22 @@ import java.util.stream.Collectors;
 @Log4j2
 public class AuthService {
 
+    private static final String home = System.getProperty("user.home");
+
+    private static final String TOKENTYPE = "Bearer";
+
     Map<String, Map<String, String>> requestIds = new HashMap<>();
 
     Map<String, Map<String, ?>> codesMap = new HashMap<>();
 
-    private List<ClientInformation> clientList = List.of(new ClientInformation("oauth-client-1", "oauth-client-secret-1", "http://localhost:8080/callback", "foo bar"));
+    private List<ClientInformation> clientList = List.of(new ClientInformation("oauth-client-1", "oauth-client-secret-1", "http://localhost:8082/api/v1/callback", "foo bar get"));
 
-    public String verifyGetRequest(AuthRequest authRequest) {
+    public String verifyGetRequest(AuthRequest authRequest) throws UnsupportedEncodingException {
         if (clientList.stream().filter(client -> client.getClientId().equals(authRequest.getClientId())).collect(Collectors.toList()).size() == 0) {
             throw new IllegalStateException("Client id unbekannt");
         }
         Optional<ClientInformation> clientInformation = clientList.stream().filter(client -> client.getClientId().equals(authRequest.getClientId())).findFirst();
-        if (!clientInformation.get().getRedirectUri().equals(authRequest.getRedirectUri())) {
+        if (!encodeValue(clientInformation.get().getRedirectUri()).equals(authRequest.getRedirectUri())) {
             throw new IllegalStateException("Redirect url matchen nicht");
         }
 
@@ -46,9 +50,17 @@ public class AuthService {
 
     }
 
+    private String encodeValue(String value) throws UnsupportedEncodingException {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8.toString());
+    }
+
+    private String decodeValue(String value) throws UnsupportedEncodingException {
+        return URLDecoder.decode(value, StandardCharsets.UTF_8.toString());
+    }
+
     private void checkScope(String scope, ClientInformation clientInformation) {
         for (String singleScope: clientInformation.getScope().split(" ")) {
-            if (!Arrays.stream(scope.split(" ")).anyMatch(string -> string.equals(singleScope))) {
+            if (!Arrays.stream(scope.split(" ")).collect(Collectors.toList()).contains(scope)) {
                 throw new IllegalStateException("Scope für diese ClientId nicht verfügbar");
             } else {
                 return;
@@ -56,7 +68,7 @@ public class AuthService {
         }
     }
 
-    public String verifyPostRequest(MultiValueMap<String,String> requestMap) {
+    public String verifyPostRequest(MultiValueMap<String,String> requestMap) throws UnsupportedEncodingException {
 
         if (!requestMap.containsKey("clientId") ||
                 !requestMap.containsKey("scope") ||
@@ -103,8 +115,8 @@ public class AuthService {
         return null;
     }
 
-    private String buildRedirectUri(String redirectUri, String code, String state) {
-        return redirectUri + "?code=" + code  + "&state=" + state;
+    private String buildRedirectUri(String redirectUri, String code, String state) throws UnsupportedEncodingException {
+        return decodeValue(redirectUri) + "?code=" + code  + "&state=" + state;
     }
 
 
@@ -164,27 +176,68 @@ public class AuthService {
 
             codesMap.remove(clientInformation.getCode());
 
-            String accessToken = RandomStringUtils.random(8, true, true);
-
-
             StringBuilder accessTokenScope = new StringBuilder();
             String scopeFromAuthToken = (String) authCode.get("scope");
             Arrays.stream(scopeFromAuthToken.split(" ")).forEach(part -> accessTokenScope.append(part + " "));
-            log.info(String.format("Issuing access token %s with scope %s", accessToken, accessTokenScope));
 
-            String str = accessToken + " " + clientInformation.getClientId() + " " + accessTokenScope + System.lineSeparator();
-            Files.write(Paths.get("accessTokens.txt"), str.getBytes(), StandardOpenOption.APPEND);
-
-            TokenResponse tokenResponse = new TokenResponse(accessToken, clientInformation.getClientId(), accessTokenScope.toString());
-
+            TokenResponse tokenResponse = getTokenResponse(clientInformation, accessTokenScope.toString());
 
             return tokenResponse;
 
 
-        } else {
+        } else if (clientInformation.getGrantType().equals(GrantType.REFRESHTOKEN)){
+
+            log.info("Getting new access token for refresh token: ", clientInformation.getRefreshToken());
+            List<String> lines = Files.readAllLines(Path.of( home + File.separator + "Documents" + File.separator + "GitHub" + File.separator + "ouath2authorizationserver" + File.separator + "accessTokens.txt"));
+
+            //TODO schauen ob refresh Token expired ist
+
+            List<AccessTokenEntry> accessTokenEntries = lines.stream().map(s -> {
+                String[] splittedString = s.split(" ");
+                List<String> scopeList = new ArrayList<>();
+                for (int i = 3; i < splittedString.length; i++) {
+                    scopeList.add(splittedString[i]);
+                }
+                return new AccessTokenEntry(splittedString[0], splittedString[1], splittedString[2], scopeList);
+            }).collect(Collectors.toList());
+
+            Optional<AccessTokenEntry> first = accessTokenEntries.stream().filter(accessTokenEntry -> accessTokenEntry.getRefreshToken().equals(clientInformation.getRefreshToken())).findFirst();
+
+            if (first.isEmpty()) {
+                throw new IllegalStateException(String.format("Refresh-Token %s not found.", clientInformation.getRefreshToken()));
+            }
+
+            if (!first.get().getClientId().equals(clientInformation.getClientId())) {
+                // TODO Eintrag aus Datenbank löschen
+                throw new IllegalStateException("Client Id passt nicht zum Refresh Token");
+            }
+
+            //TODO Handling für alte Token
+            StringBuilder accessTokenScope = new StringBuilder();
+            first.get().getScope().forEach(part -> accessTokenScope.append(part + " "));
+
+            TokenResponse tokenResponse = getTokenResponse(clientInformation, accessTokenScope.toString());
+
+            return tokenResponse;
+
+
+        }else {
             new IllegalStateException(String.format("Unknown grant type %s.", clientInformation.getGrantType()));
         }
 
         return null;
+    }
+
+    private TokenResponse getTokenResponse(ClientInformation clientInformation, String accessTokenScope) throws IOException {
+        String accessToken = RandomStringUtils.random(8, true, true);
+        String refreshToken = RandomStringUtils.random(8, true, true);
+
+        log.info(String.format("Issuing access token %s with scope %s", accessToken, accessTokenScope));
+
+        String str = accessToken + " " + clientInformation.getClientId() + " " + refreshToken + " " + accessTokenScope + System.lineSeparator();
+        Files.write(Paths.get("accessTokens.txt"), str.getBytes(), StandardOpenOption.APPEND);
+
+        TokenResponse tokenResponse = new TokenResponse(accessToken, TOKENTYPE, refreshToken);
+        return tokenResponse;
     }
 }

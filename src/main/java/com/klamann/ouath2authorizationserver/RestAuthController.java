@@ -32,16 +32,24 @@ public class RestAuthController {
     )
     public TokenResponse postToken(HttpServletRequest request, @RequestParam MultiValueMap<String,String> requestMap) throws IOException {
 
-        if (!requestMap.containsKey("code") ||
+        if (!(requestMap.containsKey("code") || requestMap.containsKey("refresh_token")) ||
                 !requestMap.containsKey("grant_type")
         ) {
             throw new IllegalStateException("POST Parameter an den token Endpunkt stimmen nicht");
         }
 
         ClientInformation clientInformation = new ClientInformation();
-        clientInformation.setCode(requestMap.get("code").get(0));
-        if (requestMap.get("grant_type").get(0).equals("authorization_code")) {
+        if (requestMap.containsKey("code")) {
+            clientInformation.setCode(requestMap.get("code").get(0));
+        } else if (requestMap.containsKey("refresh_token")) {
+            clientInformation.setRefreshToken(requestMap.get("refresh_token").get(0));
+        }
+
+        String grant_type = requestMap.get("grant_type").get(0);
+        if (grant_type.equalsIgnoreCase(GrantType.AUTHORIATIONCODE.getGrantTypeNames())) {
             clientInformation.setGrantType(GrantType.AUTHORIATIONCODE);
+        } else if (grant_type.equalsIgnoreCase(GrantType.REFRESHTOKEN.getGrantTypeNames())) {
+            clientInformation.setGrantType(GrantType.REFRESHTOKEN);
         }
 
         return authService.verifyGetTokenRequest(request, clientInformation);

@@ -13,6 +13,7 @@ public class ClientInformation {
     private String scope;
     private GrantType grantType;
     private String code;
+    private String refreshToken;
 
     public ClientInformation(String clientId, String clientSecret, String redirectUri, String scope) {
         this.clientId = clientId;

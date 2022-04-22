@@ -44,7 +44,8 @@ public class AuthController {
             @RequestParam("state") String state,
             @RequestParam(value = "responseType", required = false) String responseType,
             @RequestParam(value = "response_type", required = false) String responseTypeSynonym,
-            Model model) {
+            Model model,
+    HttpServletRequest request) throws UnsupportedEncodingException {
         if (clientId != null) {
             authRequest.setClientId(clientId);
         } else {
@@ -75,7 +76,7 @@ public class AuthController {
     @PostMapping(
             path = "/approve",
             consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE})
-    public ModelAndView postAutorize(@RequestParam MultiValueMap<String,String> paramMap, HttpServletResponse response) {
+    public ModelAndView postAutorize(@RequestParam MultiValueMap<String,String> paramMap, HttpServletResponse response) throws UnsupportedEncodingException {
         String redirectUri = authService.verifyPostRequest(paramMap);
         return new ModelAndView("redirect:" + redirectUri);
     }
